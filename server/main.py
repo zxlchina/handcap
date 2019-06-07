@@ -8,11 +8,17 @@ import requests
 import hashlib
 import urllib
 import base64
+import logging
+from urllib.parse import urlparse
 
 import sys
 
 sys.path.append("/home/lichzhang/code/JKTW/server/tools")
 from commonlib import *
+
+
+g_appid="wxb13b07fdd29e86af"
+g_secret="85b7d64f15ed6bab2a1bbe2c219592ca"
 
 
 
@@ -25,7 +31,10 @@ upload_file_path = "/home/lichzhang/release/HandCap/images/"
 
 @app.route('/')
 def hello_world():
-    return "Hello World!"
+    app.logger.debug("debug, this is a log test")
+    app.logger.warning("warning, this is a log test")
+    app.logger.error("error, thir is a log test")
+    return "Hello World! "
 
 
 @app.route("/publish", methods=['GET', 'POST'])
@@ -60,10 +69,71 @@ def get_car_numbers_bd(img_path):
     res = get_car_number(img_path)
 
     number_list = [] 
+
+    if "words_result" not in res:
+        number_list.append("")
+        return number_list
     for num in res["words_result"]:
        number_list.append(num["number"])
 
     return number_list
+
+
+@app.route("/add_item", methods=['GET', 'POST'])
+def add_item():
+    img = request.args.get('img', '')
+    openid = request.args.get('openid', '')
+    car_numbers = request.args.get('car_numbers', '')
+
+    if img == "" :
+        res = {}
+        res["ret"] = -1 
+        res["error"] = "请选择违停图片"
+        return json.dumps(res)
+
+    if car_numbers == "" :
+        res = {}
+        res["ret"] = -1 
+        res["error"] = "请设置车牌号"
+        return json.dumps(res)
+
+    
+    numbers = json.loads(car_numbers) 
+
+    img_url = urlparse(img)
+    img_path = img_url.path
+    
+    sql = ""
+    for number in numbers:
+        sql="insert into cap_info (author, car_number, img_url) values ('%s', '%s', '%s')"  % (openid, number.upper(), img_path)
+        print (sql)
+    
+    res = {}
+    res["ret"] = -1 
+    res["sql"] = sql
+    return json.dumps(res)
+
+
+
+
+@app.route("/code2session", methods=['GET', 'POST'])
+def code_2_session():
+    jscode = request.args.get('jscode', '')
+    if jscode == "":
+        res = {}
+        res["ret"] = -1 
+        res["error"] = "jscode is empty!"
+        return json.dumps(res)
+
+    #下面开始换session信息
+    url = "https://api.weixin.qq.com/sns/jscode2session?appid=%s&secret=%s&js_code=%s&grant_type=authorization_code" % (g_appid, g_secret, jscode)
+
+    res = requests.get(url)
+    
+    print(res.text)
+    time.sleep(1)
+
+    return res.text
 
 
 
@@ -114,13 +184,24 @@ def get_car_numbers(img_url):
 def upload():
     if request.method == 'POST':
         filename = get_file_name()
+        
+        
+        if not "img" in request.files.to_dict():
+            res = {}
+            res["ret"] = -1
+            res["error"] = "Invalid File, need file named img"
+            return json.dumps(res)
+            
         f = request.files['img']
+
 
         ext = os.path.splitext(f.filename)[1] 
         filename = filename + ext
         f.save(upload_file_path + filename)
 
         url = request.host_url + "static/" + filename
+
+        app.logger.debug("this is a log test")
 
         #下面调用ocr接口识别车牌号
         #car_numbers = get_car_numbers(upload_file_path + filename)
@@ -138,8 +219,13 @@ def upload():
 
 
 if __name__ == '__main__':
+    handler = logging.FileHandler('flask2.log', encoding='UTF-8')
+    handler.setLevel(logging.DEBUG)
+    app.logger.addHandler(handler)
+
     print(get_file_name())
     init_aip()
+    init_db()
     app.run(host="0.0.0.0", port=5001, debug=True)
 
 
